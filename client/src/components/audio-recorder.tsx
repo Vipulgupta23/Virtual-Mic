@@ -42,13 +42,26 @@ export function AudioRecorder({ onRecordingComplete }: AudioRecorderProps) {
       };
       
       mediaRecorder.onstop = () => {
+        console.log('MediaRecorder onstop fired');
         const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
         setAudioBlob(blob);
         setAudioUrl(URL.createObjectURL(blob));
         onRecordingComplete(blob, recordingTime);
         
-        // Cleanup
-        cleanupRecording();
+        // Final cleanup
+        if (intervalRef.current) {
+          clearInterval(intervalRef.current);
+          intervalRef.current = null;
+        }
+        
+        if (streamRef.current) {
+          streamRef.current.getTracks().forEach(track => track.stop());
+          streamRef.current = null;
+        }
+        
+        mediaRecorderRef.current = null;
+        setIsRecording(false);
+        setIsInitializing(false);
       };
       
       mediaRecorder.start();
@@ -73,14 +86,29 @@ export function AudioRecorder({ onRecordingComplete }: AudioRecorderProps) {
   };
 
   const stopRecording = () => {
+    console.log('Stop recording called, isRecording:', isRecording);
+    console.log('MediaRecorder state:', mediaRecorderRef.current?.state);
+    
     if (mediaRecorderRef.current && isRecording) {
       try {
-        mediaRecorderRef.current.stop();
+        if (mediaRecorderRef.current.state === 'recording') {
+          mediaRecorderRef.current.stop();
+        }
+        // Immediately set recording to false to prevent UI issues
         setIsRecording(false);
+        
+        // Force cleanup if onstop doesn't fire
+        setTimeout(() => {
+          cleanupRecording();
+        }, 1000);
       } catch (error) {
         console.error('Error stopping recording:', error);
         cleanupRecording();
       }
+    } else if (isRecording) {
+      // Force cleanup if we're stuck in recording state
+      console.log('Force cleanup - no mediaRecorder but isRecording is true');
+      cleanupRecording();
     }
   };
 
@@ -141,7 +169,14 @@ export function AudioRecorder({ onRecordingComplete }: AudioRecorderProps) {
                 ? 'bg-yellow-600 hover:bg-yellow-700'
                 : 'bg-blue-600 hover:bg-blue-700'
             }`}
-            onClick={isRecording ? stopRecording : startRecording}
+            onClick={() => {
+              console.log('Button clicked, isRecording:', isRecording);
+              if (isRecording) {
+                stopRecording();
+              } else {
+                startRecording();
+              }
+            }}
             disabled={!!audioBlob || isInitializing}
           >
             {isInitializing ? (
@@ -170,7 +205,7 @@ export function AudioRecorder({ onRecordingComplete }: AudioRecorderProps) {
           {isInitializing 
             ? 'Initializing microphone...'
             : isRecording 
-            ? 'Click to stop recording'
+            ? 'Click the red button to stop recording'
             : audioBlob 
             ? 'Recording complete' 
             : 'Click to start recording'
