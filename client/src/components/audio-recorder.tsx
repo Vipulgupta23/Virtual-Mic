@@ -1,7 +1,7 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { AudioPlayer } from "./audio-player";
-import { Mic, RotateCcw } from "lucide-react";
+import { Mic, RotateCcw, Square } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 interface AudioRecorderProps {
@@ -13,7 +13,7 @@ export function AudioRecorder({ onRecordingComplete }: AudioRecorderProps) {
   const [recordingTime, setRecordingTime] = useState(0);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
-  const [recordingMode, setRecordingMode] = useState<'hold' | 'click'>('hold');
+  const [isInitializing, setIsInitializing] = useState(false);
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -22,17 +22,16 @@ export function AudioRecorder({ onRecordingComplete }: AudioRecorderProps) {
   
   const { toast } = useToast();
 
-  const startRecording = useCallback(async () => {
-    if (isRecording) return;
+  const startRecording = async () => {
+    if (isRecording || isInitializing) return;
+    
+    setIsInitializing(true);
     
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
       
-      const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: 'audio/webm;codecs=opus'
-      });
-      
+      const mediaRecorder = new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
       chunksRef.current = [];
       
@@ -48,22 +47,13 @@ export function AudioRecorder({ onRecordingComplete }: AudioRecorderProps) {
         setAudioUrl(URL.createObjectURL(blob));
         onRecordingComplete(blob, recordingTime);
         
-        // Stop all tracks to release the microphone
-        if (streamRef.current) {
-          streamRef.current.getTracks().forEach(track => track.stop());
-          streamRef.current = null;
-        }
-        
-        // Clear the interval when recording stops
-        if (intervalRef.current) {
-          clearInterval(intervalRef.current);
-          intervalRef.current = null;
-        }
-        setIsRecording(false);
+        // Cleanup
+        cleanupRecording();
       };
       
       mediaRecorder.start();
       setIsRecording(true);
+      setIsInitializing(false);
       setRecordingTime(0);
       
       // Start timer
@@ -73,44 +63,45 @@ export function AudioRecorder({ onRecordingComplete }: AudioRecorderProps) {
       
     } catch (error) {
       console.error('Error accessing microphone:', error);
+      setIsInitializing(false);
       toast({
         title: "Microphone Access Denied",
         description: "Please allow microphone access to record your question",
         variant: "destructive"
       });
     }
-  }, [isRecording, onRecordingComplete, recordingTime, toast]);
+  };
 
-  const stopRecording = useCallback(() => {
+  const stopRecording = () => {
     if (mediaRecorderRef.current && isRecording) {
       try {
-        if (mediaRecorderRef.current.state === 'recording') {
-          mediaRecorderRef.current.stop();
-        }
+        mediaRecorderRef.current.stop();
+        setIsRecording(false);
       } catch (error) {
         console.error('Error stopping recording:', error);
-        setIsRecording(false);
-        if (intervalRef.current) {
-          clearInterval(intervalRef.current);
-          intervalRef.current = null;
-        }
-        if (streamRef.current) {
-          streamRef.current.getTracks().forEach(track => track.stop());
-          streamRef.current = null;
-        }
+        cleanupRecording();
       }
     }
-  }, [isRecording]);
+  };
 
-  const toggleRecording = useCallback(() => {
-    if (isRecording) {
-      stopRecording();
-    } else {
-      startRecording();
+  const cleanupRecording = () => {
+    setIsRecording(false);
+    setIsInitializing(false);
+    
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
     }
-  }, [isRecording, startRecording, stopRecording]);
+    
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+    
+    mediaRecorderRef.current = null;
+  };
 
-  const resetRecording = useCallback(() => {
+  const resetRecording = () => {
     setAudioBlob(null);
     setAudioUrl(null);
     setRecordingTime(0);
@@ -118,14 +109,12 @@ export function AudioRecorder({ onRecordingComplete }: AudioRecorderProps) {
     if (audioUrl) {
       URL.revokeObjectURL(audioUrl);
     }
-  }, [audioUrl]);
+  };
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
+      cleanupRecording();
       if (audioUrl) {
         URL.revokeObjectURL(audioUrl);
       }
@@ -140,70 +129,29 @@ export function AudioRecorder({ onRecordingComplete }: AudioRecorderProps) {
 
   return (
     <div className="space-y-4">
-      {/* Recording Mode Toggle */}
-      <div className="flex justify-center space-x-2 mb-4">
-        <Button
-          variant={recordingMode === 'hold' ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => setRecordingMode('hold')}
-          className="text-xs"
-        >
-          Hold to Record
-        </Button>
-        <Button
-          variant={recordingMode === 'click' ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => setRecordingMode('click')}
-          className="text-xs"
-        >
-          Click to Record
-        </Button>
-      </div>
-
       {/* Recording Button and Timer */}
       <div className="text-center">
         <div className="relative inline-block mb-4">
-          {recordingMode === 'hold' ? (
-            <Button
-              size="lg"
-              className={`w-24 h-24 rounded-full transition-all duration-200 recording-button ${
-                isRecording 
-                  ? 'bg-red-600 hover:bg-red-700 animate-pulse recording' 
-                  : 'bg-orange-600 hover:bg-orange-700'
-              }`}
-              style={{ touchAction: 'none' }}
-              onMouseDown={startRecording}
-              onMouseUp={stopRecording}
-              onMouseLeave={stopRecording}
-              onTouchStart={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                startRecording();
-              }}
-              onTouchEnd={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                stopRecording();
-              }}
-              onTouchCancel={stopRecording}
-              disabled={!!audioBlob}
-            >
+          <Button
+            size="lg"
+            className={`w-24 h-24 rounded-full transition-all duration-200 ${
+              isRecording 
+                ? 'bg-red-600 hover:bg-red-700 animate-pulse' 
+                : isInitializing
+                ? 'bg-yellow-600 hover:bg-yellow-700'
+                : 'bg-blue-600 hover:bg-blue-700'
+            }`}
+            onClick={isRecording ? stopRecording : startRecording}
+            disabled={!!audioBlob || isInitializing}
+          >
+            {isInitializing ? (
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
+            ) : isRecording ? (
+              <Square className="h-8 w-8 fill-current" />
+            ) : (
               <Mic className="h-8 w-8" />
-            </Button>
-          ) : (
-            <Button
-              size="lg"
-              className={`w-24 h-24 rounded-full transition-all duration-200 recording-button ${
-                isRecording 
-                  ? 'bg-red-600 hover:bg-red-700 animate-pulse recording' 
-                  : 'bg-orange-600 hover:bg-orange-700'
-              }`}
-              onClick={toggleRecording}
-              disabled={!!audioBlob}
-            >
-              <Mic className="h-8 w-8" />
-            </Button>
-          )}
+            )}
+          </Button>
           
           {/* Recording animation rings */}
           {isRecording && (
@@ -219,11 +167,13 @@ export function AudioRecorder({ onRecordingComplete }: AudioRecorderProps) {
         </div>
         
         <div className="text-sm text-gray-500">
-          {isRecording 
-            ? (recordingMode === 'hold' ? 'Release to stop recording' : 'Click to stop recording')
+          {isInitializing 
+            ? 'Initializing microphone...'
+            : isRecording 
+            ? 'Click to stop recording'
             : audioBlob 
             ? 'Recording complete' 
-            : (recordingMode === 'hold' ? 'Hold to record' : 'Click to start recording')
+            : 'Click to start recording'
           }
         </div>
       </div>
