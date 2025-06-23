@@ -72,15 +72,12 @@ app.use((req, res, next) => {
     serveStatic(app); // serves static files in production
   }
 
-  const port = 5000;
+  // ✅ Updated PORT and HOST for deployment
+  const port = process.env.PORT ? parseInt(process.env.PORT) : 5000;
   const host = process.env.NODE_ENV === "production" ? "0.0.0.0" : "127.0.0.1";
 
-  const listenOptions =
-    process.env.NODE_ENV === "production"
-      ? { port, host, reusePort: true }
-      : { port, host };
-
-  server.listen(listenOptions, () => {
+  server.listen(port, host, () => {
     log(`✅ Server is running on http://${host}:${port}`);
+    log(`🌍 Environment: ${process.env.NODE_ENV}`);
   });
 })();
