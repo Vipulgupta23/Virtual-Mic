@@ -55,6 +55,7 @@ export class MemStorage implements IStorage {
   async createSession(insertSession: InsertSession): Promise<Session> {
     const session: Session = {
       ...insertSession,
+      isActive: insertSession.isActive ?? true,
       participantCount: 0,
     };
     this.sessions.set(session.id, session);
@@ -89,6 +90,7 @@ export class MemStorage implements IStorage {
     const question: Question = {
       ...insertQuestion,
       id,
+      participantName: insertQuestion.participantName ?? null,
       order: maxOrder + 1,
       status: "queued",
     };
