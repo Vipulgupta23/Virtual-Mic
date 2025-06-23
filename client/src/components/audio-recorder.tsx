@@ -13,7 +13,6 @@ export function AudioRecorder({ onRecordingComplete }: AudioRecorderProps) {
   const [recordingTime, setRecordingTime] = useState(0);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
-  const [isInitializing, setIsInitializing] = useState(false);
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -22,132 +21,145 @@ export function AudioRecorder({ onRecordingComplete }: AudioRecorderProps) {
   
   const { toast } = useToast();
 
+  // Complete cleanup function
+  const cleanup = () => {
+    console.log('Cleanup called');
+    
+    // Stop recording
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      try {
+        mediaRecorderRef.current.stop();
+      } catch (error) {
+        console.error('Error stopping MediaRecorder:', error);
+      }
+    }
+    
+    // Clear timer
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+    
+    // Stop all audio tracks
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => {
+        track.stop();
+        console.log('Stopped track:', track.kind);
+      });
+      streamRef.current = null;
+    }
+    
+    // Reset refs
+    mediaRecorderRef.current = null;
+    chunksRef.current = [];
+    
+    // Reset state
+    setIsRecording(false);
+  };
+
   const startRecording = async () => {
-    if (isRecording || isInitializing) return;
+    console.log('Starting recording...');
     
-    setIsInitializing(true);
-    
+    if (isRecording) {
+      console.log('Already recording, ignoring');
+      return;
+    }
+
     try {
+      // Clean up any existing state first
+      cleanup();
+      
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
-      
+      console.log('Got media stream');
+
       const mediaRecorder = new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
       chunksRef.current = [];
-      
+
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
           chunksRef.current.push(event.data);
+          console.log('Audio chunk received:', event.data.size);
         }
       };
-      
+
       mediaRecorder.onstop = () => {
-        console.log('MediaRecorder onstop fired');
+        console.log('MediaRecorder stopped, creating blob');
         const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
         setAudioBlob(blob);
         setAudioUrl(URL.createObjectURL(blob));
         onRecordingComplete(blob, recordingTime);
-        
-        // Final cleanup
-        if (intervalRef.current) {
-          clearInterval(intervalRef.current);
-          intervalRef.current = null;
-        }
-        
-        if (streamRef.current) {
-          streamRef.current.getTracks().forEach(track => track.stop());
-          streamRef.current = null;
-        }
-        
-        mediaRecorderRef.current = null;
-        setIsRecording(false);
-        setIsInitializing(false);
       };
-      
+
+      mediaRecorder.onerror = (event) => {
+        console.error('MediaRecorder error:', event);
+        cleanup();
+      };
+
       mediaRecorder.start();
       setIsRecording(true);
-      setIsInitializing(false);
       setRecordingTime(0);
-      
+      console.log('Recording started');
+
       // Start timer
       intervalRef.current = setInterval(() => {
         setRecordingTime(prev => prev + 1);
       }, 1000);
-      
+
     } catch (error) {
-      console.error('Error accessing microphone:', error);
-      setIsInitializing(false);
+      console.error('Error starting recording:', error);
+      cleanup();
       toast({
-        title: "Microphone Access Denied",
-        description: "Please allow microphone access to record your question",
+        title: "Microphone Error",
+        description: "Could not access microphone. Please check permissions.",
         variant: "destructive"
       });
     }
   };
 
   const stopRecording = () => {
-    console.log('Stop recording called, isRecording:', isRecording);
-    console.log('MediaRecorder state:', mediaRecorderRef.current?.state);
-    
-    if (mediaRecorderRef.current && isRecording) {
-      try {
-        if (mediaRecorderRef.current.state === 'recording') {
-          mediaRecorderRef.current.stop();
-        }
-        // Immediately set recording to false to prevent UI issues
-        setIsRecording(false);
-        
-        // Force cleanup if onstop doesn't fire
-        setTimeout(() => {
-          cleanupRecording();
-        }, 1000);
-      } catch (error) {
-        console.error('Error stopping recording:', error);
-        cleanupRecording();
-      }
-    } else if (isRecording) {
-      // Force cleanup if we're stuck in recording state
-      console.log('Force cleanup - no mediaRecorder but isRecording is true');
-      cleanupRecording();
-    }
-  };
-
-  const cleanupRecording = () => {
-    setIsRecording(false);
-    setIsInitializing(false);
-    
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
-    
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
-    }
-    
-    mediaRecorderRef.current = null;
+    console.log('Stop recording button clicked');
+    cleanup();
   };
 
   const resetRecording = () => {
+    console.log('Reset recording');
     setAudioBlob(null);
     setAudioUrl(null);
     setRecordingTime(0);
-    
     if (audioUrl) {
       URL.revokeObjectURL(audioUrl);
     }
   };
 
-  // Cleanup on unmount
+  // Force cleanup on unmount
   useEffect(() => {
     return () => {
-      cleanupRecording();
+      console.log('Component unmounting, cleaning up');
+      cleanup();
       if (audioUrl) {
         URL.revokeObjectURL(audioUrl);
       }
     };
-  }, [audioUrl]);
+  }, []);
+
+  // Emergency cleanup every 30 seconds if stuck in recording state
+  useEffect(() => {
+    if (isRecording) {
+      const emergencyCleanup = setTimeout(() => {
+        console.log('Emergency cleanup triggered');
+        cleanup();
+        toast({
+          title: "Recording Stopped",
+          description: "Recording was automatically stopped after 30 seconds",
+          variant: "default"
+        });
+      }, 30000);
+
+      return () => clearTimeout(emergencyCleanup);
+    }
+  }, [isRecording]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -157,43 +169,30 @@ export function AudioRecorder({ onRecordingComplete }: AudioRecorderProps) {
 
   return (
     <div className="space-y-4">
-      {/* Recording Button and Timer */}
       <div className="text-center">
         <div className="relative inline-block mb-4">
+          {/* Recording button */}
           <Button
             size="lg"
             className={`w-24 h-24 rounded-full transition-all duration-200 ${
               isRecording 
-                ? 'bg-red-600 hover:bg-red-700 animate-pulse' 
-                : isInitializing
-                ? 'bg-yellow-600 hover:bg-yellow-700'
+                ? 'bg-red-600 hover:bg-red-700' 
                 : 'bg-blue-600 hover:bg-blue-700'
             }`}
-            onClick={() => {
-              console.log('Button clicked, isRecording:', isRecording);
-              if (isRecording) {
-                stopRecording();
-              } else {
-                startRecording();
-              }
-            }}
-            disabled={!!audioBlob || isInitializing}
+            onClick={isRecording ? stopRecording : startRecording}
+            disabled={!!audioBlob}
+            type="button"
           >
-            {isInitializing ? (
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
-            ) : isRecording ? (
+            {isRecording ? (
               <Square className="h-8 w-8 fill-current" />
             ) : (
               <Mic className="h-8 w-8" />
             )}
           </Button>
           
-          {/* Recording animation rings */}
+          {/* Recording animation */}
           {isRecording && (
-            <>
-              <div className="absolute inset-0 -m-4 border-4 border-red-600 rounded-full opacity-30 animate-ping" />
-              <div className="absolute inset-0 -m-8 border-4 border-red-600 rounded-full opacity-20 animate-ping" style={{ animationDelay: '0.5s' }} />
-            </>
+            <div className="absolute inset-0 -m-4 border-4 border-red-600 rounded-full opacity-30 animate-ping" />
           )}
         </div>
         
@@ -202,18 +201,16 @@ export function AudioRecorder({ onRecordingComplete }: AudioRecorderProps) {
         </div>
         
         <div className="text-sm text-gray-500">
-          {isInitializing 
-            ? 'Initializing microphone...'
-            : isRecording 
-            ? 'Click the red button to stop recording'
+          {isRecording 
+            ? 'Click the red square to stop'
             : audioBlob 
             ? 'Recording complete' 
-            : 'Click to start recording'
+            : 'Click the blue microphone to start'
           }
         </div>
       </div>
 
-      {/* Audio Playback */}
+      {/* Audio playback */}
       {audioUrl && (
         <div className="bg-gray-50 rounded-2xl p-4 space-y-3">
           <AudioPlayer src={audioUrl} />
