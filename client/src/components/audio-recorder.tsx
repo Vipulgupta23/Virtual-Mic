@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { AudioPlayer } from "./audio-player";
 import { Mic, RotateCcw } from "lucide-react";
@@ -44,6 +44,12 @@ export function AudioRecorder({ onRecordingComplete }: AudioRecorderProps) {
         
         // Stop all tracks to release the microphone
         stream.getTracks().forEach(track => track.stop());
+        
+        // Clear the interval when recording stops
+        if (intervalRef.current) {
+          clearInterval(intervalRef.current);
+          intervalRef.current = null;
+        }
       };
       
       mediaRecorder.start();
@@ -87,6 +93,18 @@ export function AudioRecorder({ onRecordingComplete }: AudioRecorderProps) {
     }
   }, [audioUrl]);
 
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+      if (audioUrl) {
+        URL.revokeObjectURL(audioUrl);
+      }
+    };
+  }, [audioUrl]);
+
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -107,8 +125,16 @@ export function AudioRecorder({ onRecordingComplete }: AudioRecorderProps) {
             }`}
             onMouseDown={startRecording}
             onMouseUp={stopRecording}
-            onTouchStart={startRecording}
-            onTouchEnd={stopRecording}
+            onMouseLeave={stopRecording}
+            onTouchStart={(e) => {
+              e.preventDefault();
+              startRecording();
+            }}
+            onTouchEnd={(e) => {
+              e.preventDefault();
+              stopRecording();
+            }}
+            onTouchCancel={stopRecording}
             disabled={!!audioBlob}
           >
             <Mic className="h-8 w-8" />
@@ -128,7 +154,7 @@ export function AudioRecorder({ onRecordingComplete }: AudioRecorderProps) {
         </div>
         
         <div className="text-sm text-gray-500">
-          {isRecording ? 'Recording...' : audioBlob ? 'Recording complete' : 'Hold to record'}
+          {isRecording ? 'Release to stop recording' : audioBlob ? 'Recording complete' : 'Hold to record'}
         </div>
       </div>
 
