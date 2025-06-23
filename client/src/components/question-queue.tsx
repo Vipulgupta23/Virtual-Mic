@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Play, ArrowUp, Trash2, GripVertical, Clock } from "lucide-react";
+import { RobustAudioPlayer } from "./robust-audio-player";
 import type { Question } from "@shared/schema";
 
 interface QuestionQueueProps {
@@ -68,6 +69,10 @@ export function QuestionQueue({ questions, onPlay, onDelete, onPrioritize }: Que
                 <span>{formatDuration(question.duration)}</span>
                 <span className="text-gray-400">•</span>
                 <span>Question #{question.id}</span>
+              </div>
+              {/* Audio Player */}
+              <div className="mt-2">
+                <RobustAudioPlayer src={`/api/audio/${question.audioFilename}`} />
               </div>
             </div>
           </div>

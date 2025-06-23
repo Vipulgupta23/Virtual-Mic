@@ -10,7 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { QRCodeGenerator } from "@/components/qr-code-generator";
 import { QuestionQueue } from "@/components/question-queue";
-import { SimpleAudioPlayer } from "@/components/simple-audio-player";
+import { RobustAudioPlayer } from "@/components/robust-audio-player";
 import { Mic, Settings, Download, Play, Pause, SkipForward, RotateCcw, StopCircle } from "lucide-react";
 import type { Session, Question } from "@shared/schema";
 

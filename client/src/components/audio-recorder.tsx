@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { SimpleAudioPlayer } from "./simple-audio-player";
 import { Mic, RotateCcw, Square } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -13,130 +12,90 @@ export function AudioRecorder({ onRecordingComplete }: AudioRecorderProps) {
   const [recordingTime, setRecordingTime] = useState(0);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [canPlayRecording, setCanPlayRecording] = useState(false);
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const chunksRef = useRef<Blob[]>([]);
-  const recordingStateRef = useRef<boolean>(false);
+  const audioRef = useRef<HTMLAudioElement>(null);
   
   const { toast } = useToast();
 
-  const stopAllTracks = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => {
-        track.stop();
-        console.log("Track stopped:", track.kind);
-      });
-      streamRef.current = null;
-    }
-  };
-
-  const clearTimer = () => {
+  const cleanup = () => {
+    console.log('🧹 Cleanup called');
+    
+    // Stop timer
     if (timerRef.current) {
       clearInterval(timerRef.current);
       timerRef.current = null;
     }
-  };
-
-  const forceStop = () => {
-    console.log("🛑 FORCE STOP CALLED");
     
-    // Stop recording state immediately
-    recordingStateRef.current = false;
-    setIsRecording(false);
-    
-    // Stop timer
-    clearTimer();
-    
-    // Stop media recorder
-    if (mediaRecorderRef.current) {
+    // Stop MediaRecorder
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       try {
-        if (mediaRecorderRef.current.state === 'recording') {
-          mediaRecorderRef.current.stop();
-        }
+        mediaRecorderRef.current.stop();
       } catch (error) {
-        console.error("Error stopping MediaRecorder:", error);
+        console.error('Error stopping MediaRecorder:', error);
       }
-      mediaRecorderRef.current = null;
     }
     
-    // Stop audio tracks
-    stopAllTracks();
-    
-    // Process audio if we have chunks
-    if (chunksRef.current.length > 0) {
-      // Determine the best MIME type for the blob
-      let blobType = 'audio/webm';
-      if (chunksRef.current[0].type) {
-        blobType = chunksRef.current[0].type;
-      }
-      
-      const blob = new Blob(chunksRef.current, { type: blobType });
-      console.log('Created blob with type:', blobType, 'size:', blob.size);
-      setAudioBlob(blob);
-      
-      // Create URL and test if it's valid
-      const url = URL.createObjectURL(blob);
-      setAudioUrl(url);
-      console.log('Created blob URL:', url);
-      
-      onRecordingComplete(blob, recordingTime);
+    // Stop all audio tracks
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => {
+        track.stop();
+        console.log('🔇 Stopped track:', track.kind);
+      });
+      streamRef.current = null;
     }
     
-    // Clear chunks
+    // Reset refs
+    mediaRecorderRef.current = null;
     chunksRef.current = [];
-    
-    console.log("🛑 FORCE STOP COMPLETE");
+    setIsRecording(false);
   };
 
   const startRecording = async () => {
-    console.log("🔴 START RECORDING");
+    console.log('🎙️ Starting recording...');
     
-    if (recordingStateRef.current) {
-      console.log("Already recording, ignoring");
-      return;
-    }
-
     try {
+      // Clean up any existing state
+      cleanup();
+      
       // Request microphone access
       const stream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
-          sampleRate: 44100
+          autoGainControl: true
         } 
       });
       
       streamRef.current = stream;
       chunksRef.current = [];
       
-      // Find the best supported format for both recording AND playback
-      let mimeType = 'audio/webm';
-      const testAudio = document.createElement('audio');
-      
-      // Test formats that work for both MediaRecorder and Audio playback
-      const formats = [
-        'audio/mp4',
-        'audio/webm;codecs=opus',
+      // Test supported MIME types
+      const mimeTypes = [
         'audio/webm',
+        'audio/webm;codecs=opus',
+        'audio/mp4',
         'audio/ogg;codecs=opus',
         'audio/wav'
       ];
       
-      for (const format of formats) {
-        if (MediaRecorder.isTypeSupported(format)) {
-          // Test if audio element can play this format
-          const canPlay = testAudio.canPlayType(format);
-          if (canPlay === 'probably' || canPlay === 'maybe') {
-            mimeType = format;
-            break;
-          }
+      let selectedMimeType = 'audio/webm';
+      for (const mimeType of mimeTypes) {
+        if (MediaRecorder.isTypeSupported(mimeType)) {
+          selectedMimeType = mimeType;
+          console.log('✅ Selected MIME type:', mimeType);
+          break;
         }
       }
       
-      console.log('Using MIME type:', mimeType);
-      const mediaRecorder = new MediaRecorder(stream, { mimeType });
+      // Create MediaRecorder
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: selectedMimeType
+      });
       
       mediaRecorderRef.current = mediaRecorder;
       
@@ -144,34 +103,27 @@ export function AudioRecorder({ onRecordingComplete }: AudioRecorderProps) {
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
           chunksRef.current.push(event.data);
-          console.log("📊 Chunk added:", event.data.size, "bytes");
+          console.log('📊 Audio chunk:', event.data.size, 'bytes');
         }
       };
       
       mediaRecorder.onstop = () => {
-        console.log("📱 MediaRecorder stopped naturally");
-        if (chunksRef.current.length > 0) {
-          // Use the same MIME type as the MediaRecorder
-          const blob = new Blob(chunksRef.current, { type: mimeType });
-          console.log('Created blob with type:', mimeType, 'size:', blob.size);
-          setAudioBlob(blob);
-          
-          const url = URL.createObjectURL(blob);
-          setAudioUrl(url);
-          console.log('Created blob URL:', url);
-          
-          onRecordingComplete(blob, recordingTime);
-        }
+        console.log('⏹️ MediaRecorder stopped');
+        processRecording(selectedMimeType);
       };
       
       mediaRecorder.onerror = (event) => {
-        console.error("MediaRecorder error:", event);
-        forceStop();
+        console.error('❌ MediaRecorder error:', event);
+        cleanup();
+        toast({
+          title: "Recording Error",
+          description: "An error occurred during recording",
+          variant: "destructive"
+        });
       };
       
       // Start recording
-      mediaRecorder.start(1000); // Collect data every second
-      recordingStateRef.current = true;
+      mediaRecorder.start(100); // Collect data every 100ms for better responsiveness
       setIsRecording(true);
       setRecordingTime(0);
       
@@ -180,11 +132,11 @@ export function AudioRecorder({ onRecordingComplete }: AudioRecorderProps) {
         setRecordingTime(prev => prev + 1);
       }, 1000);
       
-      console.log("✅ Recording started successfully");
+      console.log('✅ Recording started successfully');
       
     } catch (error) {
-      console.error("Error starting recording:", error);
-      forceStop();
+      console.error('❌ Error starting recording:', error);
+      cleanup();
       toast({
         title: "Microphone Error",
         description: "Could not access microphone. Please allow microphone access.",
@@ -193,30 +145,98 @@ export function AudioRecorder({ onRecordingComplete }: AudioRecorderProps) {
     }
   };
 
+  const processRecording = (mimeType: string) => {
+    if (chunksRef.current.length === 0) {
+      console.warn('⚠️ No audio chunks available');
+      return;
+    }
+
+    console.log('🔄 Processing', chunksRef.current.length, 'chunks');
+    
+    // Create blob
+    const blob = new Blob(chunksRef.current, { type: mimeType });
+    console.log('📦 Created blob:', blob.size, 'bytes, type:', blob.type);
+    
+    if (blob.size === 0) {
+      console.error('❌ Empty blob created');
+      toast({
+        title: "Recording Error",
+        description: "No audio was recorded",
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    // Create URL for playback testing
+    const url = URL.createObjectURL(blob);
+    console.log('🔗 Created blob URL:', url);
+    
+    setAudioBlob(blob);
+    setAudioUrl(url);
+    
+    // Test if audio can be played
+    testAudioPlayback(url);
+    
+    // Call completion callback
+    onRecordingComplete(blob, recordingTime);
+  };
+
+  const testAudioPlayback = (url: string) => {
+    const testAudio = new Audio(url);
+    
+    testAudio.oncanplay = () => {
+      console.log('✅ Audio can be played');
+      setCanPlayRecording(true);
+    };
+    
+    testAudio.onerror = (error) => {
+      console.error('❌ Audio playback test failed:', error);
+      setCanPlayRecording(false);
+    };
+    
+    testAudio.load();
+  };
+
   const stopRecording = () => {
-    console.log("🛑 STOP RECORDING BUTTON CLICKED");
-    forceStop();
+    console.log('⏹️ Stop recording requested');
+    cleanup();
+  };
+
+  const playRecording = () => {
+    if (!audioUrl || !audioRef.current) return;
+    
+    console.log('▶️ Playing recording');
+    audioRef.current.src = audioUrl;
+    audioRef.current.play().catch(error => {
+      console.error('❌ Play error:', error);
+      toast({
+        title: "Playback Error",
+        description: "Could not play the recording",
+        variant: "destructive"
+      });
+    });
   };
 
   const resetRecording = () => {
-    console.log("🔄 RESET RECORDING");
-    setAudioBlob(null);
-    setRecordingTime(0);
+    console.log('🔄 Reset recording');
     if (audioUrl) {
       URL.revokeObjectURL(audioUrl);
-      setAudioUrl(null);
     }
+    setAudioBlob(null);
+    setAudioUrl(null);
+    setRecordingTime(0);
+    setCanPlayRecording(false);
   };
 
   // Auto-cleanup after 30 seconds
   useEffect(() => {
     if (isRecording) {
       const autoStop = setTimeout(() => {
-        console.log("⏰ AUTO-STOP after 30 seconds");
-        forceStop();
+        console.log('⏰ Auto-stop after 30 seconds');
+        cleanup();
         toast({
           title: "Recording Stopped",
-          description: "Recording automatically stopped after 30 seconds",
+          description: "Recording automatically stopped after 30 seconds"
         });
       }, 30000);
       
@@ -227,8 +247,7 @@ export function AudioRecorder({ onRecordingComplete }: AudioRecorderProps) {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      console.log("🧹 Component unmounting - cleanup");
-      forceStop();
+      cleanup();
       if (audioUrl) {
         URL.revokeObjectURL(audioUrl);
       }
@@ -241,17 +260,9 @@ export function AudioRecorder({ onRecordingComplete }: AudioRecorderProps) {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const handleButtonClick = () => {
-    console.log("🖱️ Button clicked - isRecording:", isRecording);
-    if (isRecording) {
-      stopRecording();
-    } else {
-      startRecording();
-    }
-  };
-
   return (
     <div className="space-y-4">
+      {/* Recording Controls */}
       <div className="text-center">
         <div className="relative inline-block mb-4">
           <Button
@@ -261,9 +272,8 @@ export function AudioRecorder({ onRecordingComplete }: AudioRecorderProps) {
                 ? 'bg-red-600 hover:bg-red-700' 
                 : 'bg-blue-600 hover:bg-blue-700'
             }`}
-            onClick={handleButtonClick}
+            onClick={isRecording ? stopRecording : startRecording}
             disabled={!!audioBlob}
-            type="button"
           >
             {isRecording ? (
               <Square className="h-8 w-8 fill-current" />
@@ -289,32 +299,59 @@ export function AudioRecorder({ onRecordingComplete }: AudioRecorderProps) {
             : 'Click blue button to start recording'
           }
         </div>
-        
-        {/* Force stop button for emergencies */}
-        {isRecording && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={forceStop}
-            className="mt-2 text-red-600 border-red-600 hover:bg-red-50"
-          >
-            Force Stop
-          </Button>
-        )}
       </div>
 
+      {/* Audio Playback */}
       {audioUrl && (
         <div className="bg-gray-50 rounded-2xl p-4 space-y-3">
-          <SimpleAudioPlayer src={audioUrl} />
-          <Button 
-            variant="ghost" 
-            size="sm" 
-            onClick={resetRecording}
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium">
+              Recording ({((audioBlob?.size || 0) / 1024).toFixed(1)} KB)
+            </span>
+            <span className={`text-xs px-2 py-1 rounded ${
+              canPlayRecording ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+            }`}>
+              {canPlayRecording ? 'Playable' : 'Format Issue'}
+            </span>
+          </div>
+          
+          <audio 
+            ref={audioRef}
+            controls 
             className="w-full"
-          >
-            <RotateCcw className="h-4 w-4 mr-2" />
-            Record Again
-          </Button>
+            onError={(e) => {
+              console.error('Audio element error:', e);
+            }}
+          />
+          
+          <div className="flex space-x-2">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={playRecording}
+              className="flex-1"
+            >
+              Test Play
+            </Button>
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={resetRecording}
+              className="flex-1"
+            >
+              <RotateCcw className="h-4 w-4 mr-2" />
+              Record Again
+            </Button>
+          </div>
+        </div>
+      )}
+      
+      {/* Debug Info */}
+      {audioBlob && (
+        <div className="text-xs text-gray-500 space-y-1">
+          <div>Blob size: {audioBlob.size} bytes</div>
+          <div>Blob type: {audioBlob.type}</div>
+          <div>Duration: {recordingTime}s</div>
         </div>
       )}
     </div>

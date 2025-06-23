@@ -151,16 +151,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Serve audio files
+  // Serve audio files with better headers
   app.get("/api/audio/:filename", (req, res) => {
     const filePath = path.join(uploadDir, req.params.filename);
     if (fs.existsSync(filePath)) {
-      res.setHeader('Content-Type', 'audio/webm');
-      res.setHeader('Accept-Ranges', 'bytes');
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Access-Control-Allow-Methods', 'GET');
-      res.setHeader('Cache-Control', 'public, max-age=3600');
-      res.sendFile(filePath);
+      const stat = fs.statSync(filePath);
+      const fileSize = stat.size;
+      const range = req.headers.range;
+
+      if (range) {
+        // Support range requests for better streaming
+        const parts = range.replace(/bytes=/, "").split("-");
+        const start = parseInt(parts[0], 10);
+        const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+        const chunksize = (end - start) + 1;
+        const file = fs.createReadStream(filePath, { start, end });
+        const head = {
+          'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+          'Accept-Ranges': 'bytes',
+          'Content-Length': chunksize,
+          'Content-Type': 'audio/webm',
+          'Access-Control-Allow-Origin': '*',
+          'Cache-Control': 'public, max-age=3600'
+        };
+        res.writeHead(206, head);
+        file.pipe(res);
+      } else {
+        // Regular request
+        const head = {
+          'Content-Length': fileSize,
+          'Content-Type': 'audio/webm',
+          'Accept-Ranges': 'bytes',
+          'Access-Control-Allow-Origin': '*',
+          'Cache-Control': 'public, max-age=3600'
+        };
+        res.writeHead(200, head);
+        fs.createReadStream(filePath).pipe(res);
+      }
     } else {
       res.status(404).json({ message: "Audio file not found" });
     }
