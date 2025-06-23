@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { AudioPlayer } from "./audio-player";
+import { SimpleAudioPlayer } from "./simple-audio-player";
 import { Mic, RotateCcw, Square } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -111,15 +111,27 @@ export function AudioRecorder({ onRecordingComplete }: AudioRecorderProps) {
       streamRef.current = stream;
       chunksRef.current = [];
       
-      // Create MediaRecorder with better browser compatibility
+      // Find the best supported format for both recording AND playback
       let mimeType = 'audio/webm';
-      if (!MediaRecorder.isTypeSupported('audio/webm')) {
-        if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
-          mimeType = 'audio/webm;codecs=opus';
-        } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
-          mimeType = 'audio/mp4';
-        } else if (MediaRecorder.isTypeSupported('audio/wav')) {
-          mimeType = 'audio/wav';
+      const testAudio = document.createElement('audio');
+      
+      // Test formats that work for both MediaRecorder and Audio playback
+      const formats = [
+        'audio/mp4',
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/ogg;codecs=opus',
+        'audio/wav'
+      ];
+      
+      for (const format of formats) {
+        if (MediaRecorder.isTypeSupported(format)) {
+          // Test if audio element can play this format
+          const canPlay = testAudio.canPlayType(format);
+          if (canPlay === 'probably' || canPlay === 'maybe') {
+            mimeType = format;
+            break;
+          }
         }
       }
       
@@ -293,7 +305,7 @@ export function AudioRecorder({ onRecordingComplete }: AudioRecorderProps) {
 
       {audioUrl && (
         <div className="bg-gray-50 rounded-2xl p-4 space-y-3">
-          <AudioPlayer src={audioUrl} />
+          <SimpleAudioPlayer src={audioUrl} />
           <Button 
             variant="ghost" 
             size="sm" 

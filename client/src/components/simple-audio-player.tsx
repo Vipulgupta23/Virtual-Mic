@@ -2,15 +2,16 @@ import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Play, Pause } from "lucide-react";
 
-interface AudioPlayerProps {
+interface SimpleAudioPlayerProps {
   src: string;
   className?: string;
 }
 
-export function AudioPlayer({ src, className = "" }: AudioPlayerProps) {
+export function SimpleAudioPlayer({ src, className = "" }: SimpleAudioPlayerProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [error, setError] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
 
   useEffect(() => {
@@ -18,35 +19,53 @@ export function AudioPlayer({ src, className = "" }: AudioPlayerProps) {
     if (!audio) return;
 
     const updateTime = () => setCurrentTime(audio.currentTime);
-    const updateDuration = () => setDuration(audio.duration);
+    const updateDuration = () => setDuration(audio.duration || 0);
     const handleEnded = () => setIsPlaying(false);
+    const handleError = (e: Event) => {
+      console.error('Audio error:', e);
+      setError('Cannot play this audio format');
+      setIsPlaying(false);
+    };
+    const handleCanPlay = () => {
+      setError(null);
+      console.log('Audio can play');
+    };
 
     audio.addEventListener('timeupdate', updateTime);
     audio.addEventListener('loadedmetadata', updateDuration);
     audio.addEventListener('ended', handleEnded);
+    audio.addEventListener('error', handleError);
+    audio.addEventListener('canplay', handleCanPlay);
+
+    // Try to load the audio
+    audio.load();
 
     return () => {
       audio.removeEventListener('timeupdate', updateTime);
       audio.removeEventListener('loadedmetadata', updateDuration);
       audio.removeEventListener('ended', handleEnded);
+      audio.removeEventListener('error', handleError);
+      audio.removeEventListener('canplay', handleCanPlay);
     };
   }, [src]);
 
-  const togglePlayback = () => {
+  const togglePlayback = async () => {
     const audio = audioRef.current;
     if (!audio) return;
 
-    if (isPlaying) {
-      audio.pause();
-    } else {
-      audio.play().catch(error => {
-        console.error('Audio play error:', error);
-        console.log('Audio src:', audio.src);
-        console.log('Audio readyState:', audio.readyState);
-        console.log('Audio networkState:', audio.networkState);
-      });
+    try {
+      if (isPlaying) {
+        audio.pause();
+        setIsPlaying(false);
+      } else {
+        await audio.play();
+        setIsPlaying(true);
+      }
+    } catch (error) {
+      console.error('Playback error:', error);
+      setError('Playback failed');
+      setIsPlaying(false);
     }
-    setIsPlaying(!isPlaying);
   };
 
   const formatTime = (time: number) => {
@@ -58,16 +77,18 @@ export function AudioPlayer({ src, className = "" }: AudioPlayerProps) {
 
   const progressPercentage = duration > 0 ? (currentTime / duration) * 100 : 0;
 
+  if (error) {
+    return (
+      <div className={`p-3 bg-red-50 border border-red-200 rounded-lg ${className}`}>
+        <p className="text-red-600 text-sm">Audio playback error: {error}</p>
+        <p className="text-red-500 text-xs mt-1">File: {src.substring(0, 50)}...</p>
+      </div>
+    );
+  }
+
   return (
     <div className={`flex items-center space-x-3 ${className}`}>
-      <audio 
-        ref={audioRef} 
-        preload="metadata"
-        onError={(e) => {
-          console.error('Audio playback error:', e);
-          console.log('Audio src:', src);
-        }}
-      >
+      <audio ref={audioRef} preload="metadata">
         <source src={src} type="audio/webm" />
         <source src={src} type="audio/mp4" />
         <source src={src} type="audio/wav" />
@@ -79,6 +100,7 @@ export function AudioPlayer({ src, className = "" }: AudioPlayerProps) {
         size="sm"
         onClick={togglePlayback}
         className="w-10 h-10 rounded-full p-0"
+        disabled={!duration && !error}
       >
         {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
       </Button>
