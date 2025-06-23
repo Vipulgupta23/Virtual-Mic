@@ -31,15 +31,6 @@ export function AudioRecorder({ onRecordingComplete }: AudioRecorderProps) {
       timerRef.current = null;
     }
     
-    // Stop MediaRecorder
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      try {
-        mediaRecorderRef.current.stop();
-      } catch (error) {
-        console.error('Error stopping MediaRecorder:', error);
-      }
-    }
-    
     // Stop all audio tracks
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => {
@@ -49,7 +40,7 @@ export function AudioRecorder({ onRecordingComplete }: AudioRecorderProps) {
       streamRef.current = null;
     }
     
-    // Reset refs
+    // Reset refs and state
     mediaRecorderRef.current = null;
     chunksRef.current = [];
     setIsRecording(false);
@@ -179,6 +170,9 @@ export function AudioRecorder({ onRecordingComplete }: AudioRecorderProps) {
     
     // Call completion callback
     onRecordingComplete(blob, recordingTime);
+    
+    // Clean up after processing
+    cleanup();
   };
 
   const testAudioPlayback = (url: string) => {
@@ -199,7 +193,15 @@ export function AudioRecorder({ onRecordingComplete }: AudioRecorderProps) {
 
   const stopRecording = () => {
     console.log('⏹️ Stop recording requested');
-    cleanup();
+    
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      console.log('⏹️ Stopping MediaRecorder...');
+      mediaRecorderRef.current.stop();
+      // The onstop event will trigger processRecording()
+    } else {
+      console.log('⚠️ MediaRecorder not in recording state');
+      cleanup();
+    }
   };
 
   const playRecording = () => {
