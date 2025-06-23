@@ -20,9 +20,11 @@ export default function ParticipantInterface() {
   const { toast } = useToast();
 
   // Get session data
-  const { data: session, isLoading } = useQuery<Session>({
-    queryKey: ["/api/sessions", sessionId],
+  const { data: session, isLoading, error } = useQuery<Session>({
+    queryKey: [`/api/sessions/${sessionId}`],
     enabled: !!sessionId,
+    retry: 3,
+    retryDelay: 1000,
   });
 
   // Submit question mutation
@@ -97,7 +99,7 @@ export default function ParticipantInterface() {
     );
   }
 
-  if (!session) {
+  if (!session && !isLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
         <Card className="w-full max-w-md">
@@ -106,7 +108,13 @@ export default function ParticipantInterface() {
               <Mic className="h-12 w-12 mx-auto" />
             </div>
             <h2 className="text-xl font-semibold text-gray-900 mb-2">Session Not Found</h2>
-            <p className="text-gray-600">This session may have ended or the link is invalid.</p>
+            <p className="text-gray-600 mb-4">This session may have ended or the link is invalid.</p>
+            <p className="text-sm text-gray-500">Session ID: {sessionId}</p>
+            {error && (
+              <p className="text-sm text-red-500 mt-2">
+                Error: {(error as any)?.message || 'Failed to load session'}
+              </p>
+            )}
           </CardContent>
         </Card>
       </div>
