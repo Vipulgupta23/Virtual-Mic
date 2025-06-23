@@ -66,9 +66,21 @@ export function AudioRecorder({ onRecordingComplete }: AudioRecorderProps) {
     
     // Process audio if we have chunks
     if (chunksRef.current.length > 0) {
-      const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+      // Determine the best MIME type for the blob
+      let blobType = 'audio/webm';
+      if (chunksRef.current[0].type) {
+        blobType = chunksRef.current[0].type;
+      }
+      
+      const blob = new Blob(chunksRef.current, { type: blobType });
+      console.log('Created blob with type:', blobType, 'size:', blob.size);
       setAudioBlob(blob);
-      setAudioUrl(URL.createObjectURL(blob));
+      
+      // Create URL and test if it's valid
+      const url = URL.createObjectURL(blob);
+      setAudioUrl(url);
+      console.log('Created blob URL:', url);
+      
       onRecordingComplete(blob, recordingTime);
     }
     
@@ -99,10 +111,20 @@ export function AudioRecorder({ onRecordingComplete }: AudioRecorderProps) {
       streamRef.current = stream;
       chunksRef.current = [];
       
-      // Create MediaRecorder
-      const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: 'audio/webm'
-      });
+      // Create MediaRecorder with better browser compatibility
+      let mimeType = 'audio/webm';
+      if (!MediaRecorder.isTypeSupported('audio/webm')) {
+        if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+          mimeType = 'audio/webm;codecs=opus';
+        } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+          mimeType = 'audio/mp4';
+        } else if (MediaRecorder.isTypeSupported('audio/wav')) {
+          mimeType = 'audio/wav';
+        }
+      }
+      
+      console.log('Using MIME type:', mimeType);
+      const mediaRecorder = new MediaRecorder(stream, { mimeType });
       
       mediaRecorderRef.current = mediaRecorder;
       
@@ -117,9 +139,15 @@ export function AudioRecorder({ onRecordingComplete }: AudioRecorderProps) {
       mediaRecorder.onstop = () => {
         console.log("📱 MediaRecorder stopped naturally");
         if (chunksRef.current.length > 0) {
-          const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+          // Use the same MIME type as the MediaRecorder
+          const blob = new Blob(chunksRef.current, { type: mimeType });
+          console.log('Created blob with type:', mimeType, 'size:', blob.size);
           setAudioBlob(blob);
-          setAudioUrl(URL.createObjectURL(blob));
+          
+          const url = URL.createObjectURL(blob);
+          setAudioUrl(url);
+          console.log('Created blob URL:', url);
+          
           onRecordingComplete(blob, recordingTime);
         }
       };

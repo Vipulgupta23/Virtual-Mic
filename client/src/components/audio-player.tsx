@@ -39,7 +39,12 @@ export function AudioPlayer({ src, className = "" }: AudioPlayerProps) {
     if (isPlaying) {
       audio.pause();
     } else {
-      audio.play();
+      audio.play().catch(error => {
+        console.error('Audio play error:', error);
+        console.log('Audio src:', audio.src);
+        console.log('Audio readyState:', audio.readyState);
+        console.log('Audio networkState:', audio.networkState);
+      });
     }
     setIsPlaying(!isPlaying);
   };

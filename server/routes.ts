@@ -20,7 +20,9 @@ const upload = multer({
   },
   fileFilter: (req, file, cb) => {
     console.log('File mimetype:', file.mimetype);
-    if (file.mimetype.startsWith('audio/') || file.mimetype === 'video/webm') {
+    if (file.mimetype.startsWith('audio/') || 
+        file.mimetype === 'video/webm' || 
+        file.mimetype === 'application/octet-stream') {
       cb(null, true);
     } else {
       cb(new Error('Only audio files are allowed'));
@@ -155,6 +157,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (fs.existsSync(filePath)) {
       res.setHeader('Content-Type', 'audio/webm');
       res.setHeader('Accept-Ranges', 'bytes');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET');
+      res.setHeader('Cache-Control', 'public, max-age=3600');
       res.sendFile(filePath);
     } else {
       res.status(404).json({ message: "Audio file not found" });
