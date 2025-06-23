@@ -15,151 +15,185 @@ export function AudioRecorder({ onRecordingComplete }: AudioRecorderProps) {
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const recordingStateRef = useRef<boolean>(false);
   
   const { toast } = useToast();
 
-  // Complete cleanup function
-  const cleanup = () => {
-    console.log('Cleanup called');
-    
-    // Stop recording
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      try {
-        mediaRecorderRef.current.stop();
-      } catch (error) {
-        console.error('Error stopping MediaRecorder:', error);
-      }
-    }
-    
-    // Clear timer
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
-    
-    // Stop all audio tracks
+  const stopAllTracks = () => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => {
         track.stop();
-        console.log('Stopped track:', track.kind);
+        console.log("Track stopped:", track.kind);
       });
       streamRef.current = null;
     }
+  };
+
+  const clearTimer = () => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+
+  const forceStop = () => {
+    console.log("🛑 FORCE STOP CALLED");
     
-    // Reset refs
-    mediaRecorderRef.current = null;
+    // Stop recording state immediately
+    recordingStateRef.current = false;
+    setIsRecording(false);
+    
+    // Stop timer
+    clearTimer();
+    
+    // Stop media recorder
+    if (mediaRecorderRef.current) {
+      try {
+        if (mediaRecorderRef.current.state === 'recording') {
+          mediaRecorderRef.current.stop();
+        }
+      } catch (error) {
+        console.error("Error stopping MediaRecorder:", error);
+      }
+      mediaRecorderRef.current = null;
+    }
+    
+    // Stop audio tracks
+    stopAllTracks();
+    
+    // Process audio if we have chunks
+    if (chunksRef.current.length > 0) {
+      const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+      setAudioBlob(blob);
+      setAudioUrl(URL.createObjectURL(blob));
+      onRecordingComplete(blob, recordingTime);
+    }
+    
+    // Clear chunks
     chunksRef.current = [];
     
-    // Reset state
-    setIsRecording(false);
+    console.log("🛑 FORCE STOP COMPLETE");
   };
 
   const startRecording = async () => {
-    console.log('Starting recording...');
+    console.log("🔴 START RECORDING");
     
-    if (isRecording) {
-      console.log('Already recording, ignoring');
+    if (recordingStateRef.current) {
+      console.log("Already recording, ignoring");
       return;
     }
 
     try {
-      // Clean up any existing state first
-      cleanup();
+      // Request microphone access
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          sampleRate: 44100
+        } 
+      });
       
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
-      console.log('Got media stream');
-
-      const mediaRecorder = new MediaRecorder(stream);
-      mediaRecorderRef.current = mediaRecorder;
       chunksRef.current = [];
-
+      
+      // Create MediaRecorder
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: 'audio/webm'
+      });
+      
+      mediaRecorderRef.current = mediaRecorder;
+      
+      // Set up event handlers
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
           chunksRef.current.push(event.data);
-          console.log('Audio chunk received:', event.data.size);
+          console.log("📊 Chunk added:", event.data.size, "bytes");
         }
       };
-
+      
       mediaRecorder.onstop = () => {
-        console.log('MediaRecorder stopped, creating blob');
-        const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
-        setAudioBlob(blob);
-        setAudioUrl(URL.createObjectURL(blob));
-        onRecordingComplete(blob, recordingTime);
+        console.log("📱 MediaRecorder stopped naturally");
+        if (chunksRef.current.length > 0 && !audioBlob) {
+          const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+          setAudioBlob(blob);
+          setAudioUrl(URL.createObjectURL(blob));
+          onRecordingComplete(blob, recordingTime);
+        }
       };
-
+      
       mediaRecorder.onerror = (event) => {
-        console.error('MediaRecorder error:', event);
-        cleanup();
+        console.error("MediaRecorder error:", event);
+        forceStop();
       };
-
-      mediaRecorder.start();
+      
+      // Start recording
+      mediaRecorder.start(1000); // Collect data every second
+      recordingStateRef.current = true;
       setIsRecording(true);
       setRecordingTime(0);
-      console.log('Recording started');
-
+      
       // Start timer
-      intervalRef.current = setInterval(() => {
+      timerRef.current = setInterval(() => {
         setRecordingTime(prev => prev + 1);
       }, 1000);
-
+      
+      console.log("✅ Recording started successfully");
+      
     } catch (error) {
-      console.error('Error starting recording:', error);
-      cleanup();
+      console.error("Error starting recording:", error);
+      forceStop();
       toast({
         title: "Microphone Error",
-        description: "Could not access microphone. Please check permissions.",
+        description: "Could not access microphone. Please allow microphone access.",
         variant: "destructive"
       });
     }
   };
 
   const stopRecording = () => {
-    console.log('Stop recording button clicked');
-    cleanup();
+    console.log("🛑 STOP RECORDING BUTTON CLICKED");
+    forceStop();
   };
 
   const resetRecording = () => {
-    console.log('Reset recording');
+    console.log("🔄 RESET RECORDING");
     setAudioBlob(null);
-    setAudioUrl(null);
     setRecordingTime(0);
     if (audioUrl) {
       URL.revokeObjectURL(audioUrl);
+      setAudioUrl(null);
     }
   };
 
-  // Force cleanup on unmount
+  // Auto-cleanup after 30 seconds
+  useEffect(() => {
+    if (isRecording) {
+      const autoStop = setTimeout(() => {
+        console.log("⏰ AUTO-STOP after 30 seconds");
+        forceStop();
+        toast({
+          title: "Recording Stopped",
+          description: "Recording automatically stopped after 30 seconds",
+        });
+      }, 30000);
+      
+      return () => clearTimeout(autoStop);
+    }
+  }, [isRecording]);
+
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
-      console.log('Component unmounting, cleaning up');
-      cleanup();
+      console.log("🧹 Component unmounting - cleanup");
+      forceStop();
       if (audioUrl) {
         URL.revokeObjectURL(audioUrl);
       }
     };
   }, []);
-
-  // Emergency cleanup every 30 seconds if stuck in recording state
-  useEffect(() => {
-    if (isRecording) {
-      const emergencyCleanup = setTimeout(() => {
-        console.log('Emergency cleanup triggered');
-        cleanup();
-        toast({
-          title: "Recording Stopped",
-          description: "Recording was automatically stopped after 30 seconds",
-          variant: "default"
-        });
-      }, 30000);
-
-      return () => clearTimeout(emergencyCleanup);
-    }
-  }, [isRecording]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -167,11 +201,19 @@ export function AudioRecorder({ onRecordingComplete }: AudioRecorderProps) {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
+  const handleButtonClick = () => {
+    console.log("🖱️ Button clicked - isRecording:", isRecording);
+    if (isRecording) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="text-center">
         <div className="relative inline-block mb-4">
-          {/* Recording button */}
           <Button
             size="lg"
             className={`w-24 h-24 rounded-full transition-all duration-200 ${
@@ -179,7 +221,7 @@ export function AudioRecorder({ onRecordingComplete }: AudioRecorderProps) {
                 ? 'bg-red-600 hover:bg-red-700' 
                 : 'bg-blue-600 hover:bg-blue-700'
             }`}
-            onClick={isRecording ? stopRecording : startRecording}
+            onClick={handleButtonClick}
             disabled={!!audioBlob}
             type="button"
           >
@@ -190,7 +232,6 @@ export function AudioRecorder({ onRecordingComplete }: AudioRecorderProps) {
             )}
           </Button>
           
-          {/* Recording animation */}
           {isRecording && (
             <div className="absolute inset-0 -m-4 border-4 border-red-600 rounded-full opacity-30 animate-ping" />
           )}
@@ -202,15 +243,26 @@ export function AudioRecorder({ onRecordingComplete }: AudioRecorderProps) {
         
         <div className="text-sm text-gray-500">
           {isRecording 
-            ? 'Click the red square to stop'
+            ? 'Recording... Click red button to stop'
             : audioBlob 
-            ? 'Recording complete' 
-            : 'Click the blue microphone to start'
+            ? 'Recording complete - ready to submit' 
+            : 'Click blue button to start recording'
           }
         </div>
+        
+        {/* Force stop button for emergencies */}
+        {isRecording && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={forceStop}
+            className="mt-2 text-red-600 border-red-600 hover:bg-red-50"
+          >
+            Force Stop
+          </Button>
+        )}
       </div>
 
-      {/* Audio playback */}
       {audioUrl && (
         <div className="bg-gray-50 rounded-2xl p-4 space-y-3">
           <AudioPlayer src={audioUrl} />
