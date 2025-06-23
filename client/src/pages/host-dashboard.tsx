@@ -56,6 +56,7 @@ export default function HostDashboard() {
   // Get questions
   const { data: questions = [], refetch: refetchQuestions } = useQuery<Question[]>({
     queryKey: ["/api/sessions", sessionId, "questions"],
+    queryFn: () => fetch(`/api/sessions/${sessionId}/questions`).then(res => res.json()),
     enabled: !!sessionId,
     refetchInterval: 3000, // Poll every 3 seconds
   });

@@ -55,7 +55,15 @@ export function AudioPlayer({ src, className = "" }: AudioPlayerProps) {
 
   return (
     <div className={`flex items-center space-x-3 ${className}`}>
-      <audio ref={audioRef} src={src} />
+      <audio 
+        ref={audioRef} 
+        src={src}
+        preload="metadata"
+        onError={(e) => {
+          console.error('Audio playback error:', e);
+          console.log('Audio src:', src);
+        }}
+      />
       
       <Button
         variant="outline"

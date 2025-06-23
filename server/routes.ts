@@ -153,6 +153,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/audio/:filename", (req, res) => {
     const filePath = path.join(uploadDir, req.params.filename);
     if (fs.existsSync(filePath)) {
+      res.setHeader('Content-Type', 'audio/webm');
+      res.setHeader('Accept-Ranges', 'bytes');
       res.sendFile(filePath);
     } else {
       res.status(404).json({ message: "Audio file not found" });

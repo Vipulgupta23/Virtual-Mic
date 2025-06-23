@@ -116,7 +116,7 @@ export function AudioRecorder({ onRecordingComplete }: AudioRecorderProps) {
       
       mediaRecorder.onstop = () => {
         console.log("📱 MediaRecorder stopped naturally");
-        if (chunksRef.current.length > 0 && !audioBlob) {
+        if (chunksRef.current.length > 0) {
           const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
           setAudioBlob(blob);
           setAudioUrl(URL.createObjectURL(blob));
