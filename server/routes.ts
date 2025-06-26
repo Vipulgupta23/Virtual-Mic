@@ -31,6 +31,13 @@ const upload = multer({
 });
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Health check endpoint for Railway
+  app.get("/", (req, res) => {
+    res.json({ status: "ok", message: "Virtual Mic System is running" });
+  });
+  app.get("/health", (req, res) => {
+    res.json({ status: "healthy", timestamp: new Date().toISOString() });
+  });
   // Session routes
   app.post("/api/sessions", async (req, res) => {
     try {
