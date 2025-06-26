@@ -1,5 +1,6 @@
 [build]
 builder = "nixpacks"
+
 [deploy]
-startCommand = "npm run start"
+startCommand = "node server/production.js"
 restartPolicyType = "on_failure"
