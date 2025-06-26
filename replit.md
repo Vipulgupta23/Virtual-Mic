@@ -77,6 +77,7 @@ The deployment uses parallel workflow execution and includes proper environment 
 ```
 Changelog:
 - June 26, 2025. Initial setup
+- June 26, 2025. Migration to Replit completed - added deployment configuration files (railway.toml, Procfile, DEPLOYMENT.md)
 ```
 
 ## User Preferences
